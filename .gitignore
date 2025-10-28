@@ -9,3 +9,4 @@ target/
 *.crt
 *.key
 *.pem
+*.srl
