@@ -1,3 +1,11 @@
 .vscode/
 *.log
 target/
+
+# Ignore keystore files
+*.jks
+
+# Ignore certificates and keys
+*.crt
+*.key
+*.pem
