@@ -10,3 +10,6 @@ target/
 *.key
 *.pem
 *.srl
+ca.conf
+crlnumber
+index.txt

@@ -22,14 +22,17 @@ usage() {
     echo "  --city CITY         Set city/locality (default: City)"
     echo "  --ou OU             Set organizational unit (default: Development)"
     echo "  --cn CN             Set common name (default: MyOrg Root CA)"
+    echo "  --clean             Remove all generated CA and keystore artifacts"
     echo ""
     echo "Example:"
     echo "  $0 --org \"MyCompany\" --cn \"MyCompany Root CA\" --validity 7300"
+    echo "  $0 --clean         # Remove all generated artifacts"
     exit 1
 }
 
 # Default configuration
 FORCE_OVERWRITE=false
+CLEAN_MODE=false
 VALIDITY_DAYS=3650  # 10 years
 KEY_SIZE=4096
 ORGANIZATION="MyOrg"
@@ -99,6 +102,10 @@ while [[ $# -gt 0 ]]; do
         --cn)
             CN="$2"
             shift 2
+            ;;
+        --clean)
+            CLEAN_MODE=true
+            shift
             ;;
         *)
             echo -e "${RED}Error: Unknown argument '$1'${NC}"
@@ -355,8 +362,114 @@ display_final_instructions() {
     echo "  • Rotate the CA certificate before expiration"
 }
 
+# Function to clean all generated artifacts
+clean_artifacts() {
+    echo -e "${BLUE}Cleaning all generated CA and keystore artifacts...${NC}"
+    
+    local files_to_remove=(
+        # CA files
+        "ca-key.pem"
+        "ca-cert.pem" 
+        "ca.conf"
+        "ca-cert.srl"
+        "index.txt"
+        "index.txt.old"
+        "index.txt.attr"
+        "index.txt.attr.old"
+        "crlnumber"
+        "crlnumber.old"
+        ".rand"
+        "crl.pem"
+        
+        # Keystore files
+        "client.jks"
+        "server.jks"
+        "truststore.jks"
+        
+        # Temporary files that might be left behind
+        "temp_client_cert.pem"
+        "temp_client_key.pem"
+        "temp_client.p12"
+        "temp_client_req.pem"
+        "temp_server_cert.pem"
+        "temp_server_key.pem" 
+        "temp_server.p12"
+        "temp_server_req.pem"
+        "temp_client_ext.cnf"
+        "temp_server_ext.cnf"
+    )
+    
+    local removed_count=0
+    local total_count=0
+    
+    # Remove files in scripts directory
+    for file in "${files_to_remove[@]}"; do
+        if [ -f "./$file" ]; then
+            rm -f "./$file"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✓ Removed: $file${NC}"
+                ((removed_count++))
+            else
+                echo -e "${RED}✗ Failed to remove: $file${NC}"
+            fi
+        fi
+        ((total_count++))
+    done
+    
+    # Remove keystore files from src/main/resources if they exist
+    local resources_dir="../src/main/resources"
+    if [ -d "$resources_dir" ]; then
+        echo -e "${BLUE}Cleaning keystore files from $resources_dir...${NC}"
+        for keystore in "client.jks" "server.jks" "truststore.jks"; do
+            if [ -f "$resources_dir/$keystore" ]; then
+                rm -f "$resources_dir/$keystore"
+                if [ $? -eq 0 ]; then
+                    echo -e "${GREEN}✓ Removed: $resources_dir/$keystore${NC}"
+                    ((removed_count++))
+                else
+                    echo -e "${RED}✗ Failed to remove: $resources_dir/$keystore${NC}"
+                fi
+            fi
+            ((total_count++))
+        done
+    fi
+    
+    # Remove keystore files from target/classes if they exist
+    local target_dir="../target/classes"
+    if [ -d "$target_dir" ]; then
+        echo -e "${BLUE}Cleaning keystore files from $target_dir...${NC}"
+        for keystore in "client.jks" "server.jks" "truststore.jks"; do
+            if [ -f "$target_dir/$keystore" ]; then
+                rm -f "$target_dir/$keystore"
+                if [ $? -eq 0 ]; then
+                    echo -e "${GREEN}✓ Removed: $target_dir/$keystore${NC}"
+                    ((removed_count++))
+                else
+                    echo -e "${RED}✗ Failed to remove: $target_dir/$keystore${NC}"
+                fi
+            fi
+            ((total_count++))
+        done
+    fi
+    
+    echo ""
+    echo -e "${GREEN}===========================================${NC}"
+    echo -e "${GREEN}  Cleanup Complete!${NC}"
+    echo -e "${GREEN}===========================================${NC}"
+    echo -e "${BLUE}Summary: Removed $removed_count artifacts${NC}"
+    echo -e "${YELLOW}Note: This removed all CA certificates, private keys, keystores,${NC}"
+    echo -e "${YELLOW}      and related artifacts. You will need to recreate them${NC}"
+    echo -e "${YELLOW}      to use mTLS functionality.${NC}"
+}
+
 # Main execution
 main() {
+    # Handle clean mode
+    if [ "$CLEAN_MODE" = true ]; then
+        clean_artifacts
+        exit 0
+    fi
+    
     echo -e "${BLUE}Starting Certificate Authority creation...${NC}"
     echo -e "${BLUE}Configuration:${NC}"
     echo "  Organization: $ORGANIZATION"

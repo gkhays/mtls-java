@@ -6,17 +6,23 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [-all|-client|-server] [-single-use]"
+    echo "Usage: $0 [-all|-client|-server|-clean] [-single-use|-dual-use]"
     echo "  -all        Create both client.jks and server.jks keystores plus truststore.jks (default)"
-    echo "  -client     Create client.jks keystore with client certificate only"
-    echo "  -server     Create server.jks keystore with server certificate only"
+    echo "                 Copies all three files to src/main/resources"
+    echo "  -client     Create client.jks keystore with client certificate plus truststore.jks"
+    echo "                 Copies client.jks and truststore.jks to src/main/resources"
+    echo "  -server     Create server.jks keystore with server certificate plus truststore.jks"
+    echo "                 Copies server.jks and truststore.jks to src/main/resources"
+    echo "  -clean      Remove all JKS files from script directory and src/main/resources"
     echo "  -single-use Set serverAuth EKU in client certificate for single-use scenarios"
+    echo "  -dual-use   Set both clientAuth and serverAuth EKU in both client and server certificates"
     exit 1
 }
 
 # Parse command line arguments
 KEYSTORE_TYPE="all"
 SINGLE_USE=false
+DUAL_USE=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -29,8 +35,14 @@ while [ $# -gt 0 ]; do
         -server)
             KEYSTORE_TYPE="server"
             ;;
+        -clean)
+            KEYSTORE_TYPE="clean"
+            ;;
         -single-use)
             SINGLE_USE=true
+            ;;
+        -dual-use)
+            DUAL_USE=true
             ;;
         -h|--help)
             usage
@@ -42,6 +54,12 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# Validate mutually exclusive options
+if [ "$SINGLE_USE" = true ] && [ "$DUAL_USE" = true ]; then
+    echo "Error: -single-use and -dual-use are mutually exclusive"
+    exit 1
+fi
 
 # Configuration based on keystore type
 KEYSTORE_PASSWORD="changeit"
@@ -102,7 +120,24 @@ create_keystore() {
     # Sign the certificate with the CA
     if [ "$TYPE" = "server" ]; then
         # Create extensions file for server certificate
-        cat > temp_server_ext.cnf << EOF
+        if [ "$DUAL_USE" = true ]; then
+            # Dual-use server certificate with both clientAuth and serverAuth EKU
+            cat > temp_server_ext.cnf << EOF
+[v3_req]
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+EOF
+            echo -e "${YELLOW}Creating dual-use server certificate with serverAuth and clientAuth EKU...${NC}"
+        else
+            # Standard server certificate with serverAuth EKU only
+            cat > temp_server_ext.cnf << EOF
 [v3_req]
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
@@ -114,6 +149,7 @@ subjectAltName = @alt_names
 DNS.1 = localhost
 IP.1 = 127.0.0.1
 EOF
+        fi
         
         openssl x509 -req -in temp_${TYPE}_req.pem \
             -CA "$CA_CERT" -CAkey "$CA_KEY" \
@@ -145,6 +181,20 @@ subjectAltName = @alt_names
 DNS.1 = client
 EOF
             echo -e "${YELLOW}Creating single-use client certificate with serverAuth EKU...${NC}"
+        elif [ "$DUAL_USE" = true ]; then
+            # Dual-use client certificate with both clientAuth and serverAuth EKU
+            cat > temp_client_ext.cnf << EOF
+[v3_req]
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = clientAuth, serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = client
+EOF
+            echo -e "${YELLOW}Creating dual-use client certificate with clientAuth and serverAuth EKU...${NC}"
         else
             # Standard client certificate with clientAuth EKU
             cat > temp_client_ext.cnf << EOF
@@ -224,6 +274,8 @@ EOF
         echo "  Signed by CA: $CA_CERT"
         if [ "$TYPE" = "client" ] && [ "$SINGLE_USE" = true ]; then
             echo "  Mode: Single-use (serverAuth EKU)"
+        elif [ "$DUAL_USE" = true ]; then
+            echo "  Mode: Dual-use (clientAuth and serverAuth EKU)"
         fi
         echo ""
         
@@ -284,9 +336,145 @@ create_truststore() {
     fi
 }
 
+# Function to clean all JKS files
+clean_jks_files() {
+    echo -e "${GREEN}Cleaning JKS files from script directory and src/main/resources${NC}"
+    echo "=============================================="
+    
+    local FILES_REMOVED=0
+    local SCRIPT_DIR="."
+    local RESOURCES_DIR="../src/main/resources"
+    
+    # Clean JKS files from script directory
+    echo -e "${YELLOW}Checking script directory: $SCRIPT_DIR${NC}"
+    for jks_file in "$SCRIPT_DIR"/*.jks; do
+        if [ -f "$jks_file" ]; then
+            echo -e "${GREEN}Removing: $jks_file${NC}"
+            rm "$jks_file"
+            FILES_REMOVED=$((FILES_REMOVED + 1))
+        fi
+    done
+    
+    # Clean JKS files from src/main/resources directory
+    if [ -d "$RESOURCES_DIR" ]; then
+        echo -e "${YELLOW}Checking resources directory: $RESOURCES_DIR${NC}"
+        for jks_file in "$RESOURCES_DIR"/*.jks; do
+            if [ -f "$jks_file" ]; then
+                echo -e "${GREEN}Removing: $jks_file${NC}"
+                rm "$jks_file"
+                FILES_REMOVED=$((FILES_REMOVED + 1))
+            fi
+        done
+    else
+        echo -e "${YELLOW}Resources directory not found: $RESOURCES_DIR${NC}"
+    fi
+    
+    if [ $FILES_REMOVED -eq 0 ]; then
+        echo -e "${YELLOW}No JKS files found to remove.${NC}"
+    else
+        echo -e "${GREEN}✓ Successfully removed $FILES_REMOVED JKS file(s).${NC}"
+    fi
+    
+    echo ""
+    return 0
+}
+
+# Function to copy JKS files to src/main/resources
+copy_jks_to_resources() {
+    local RESOURCES_DIR="../src/main/resources"
+    local FILES_COPIED=0
+    
+    echo -e "${GREEN}Copying JKS files to resources directory${NC}"
+    echo "=============================================="
+    
+    # Create resources directory if it doesn't exist
+    if [ ! -d "$RESOURCES_DIR" ]; then
+        echo -e "${YELLOW}Creating resources directory: $RESOURCES_DIR${NC}"
+        mkdir -p "$RESOURCES_DIR"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}Error: Failed to create resources directory${NC}"
+            return 1
+        fi
+    fi
+    
+    # Copy JKS files based on keystore type
+    case "$KEYSTORE_TYPE" in
+        "all")
+            for jks_file in server.jks client.jks truststore.jks; do
+                if [ -f "$jks_file" ]; then
+                    echo -e "${GREEN}Copying: $jks_file to $RESOURCES_DIR/${NC}"
+                    cp "$jks_file" "$RESOURCES_DIR/"
+                    if [ $? -eq 0 ]; then
+                        FILES_COPIED=$((FILES_COPIED + 1))
+                    else
+                        echo -e "${RED}Error: Failed to copy $jks_file${NC}"
+                    fi
+                fi
+            done
+            ;;
+        "server")
+            if [ -f "server.jks" ]; then
+                echo -e "${GREEN}Copying: server.jks to $RESOURCES_DIR/${NC}"
+                cp "server.jks" "$RESOURCES_DIR/"
+                if [ $? -eq 0 ]; then
+                    FILES_COPIED=$((FILES_COPIED + 1))
+                else
+                    echo -e "${RED}Error: Failed to copy server.jks${NC}"
+                fi
+            fi
+            # Also copy truststore for server operation
+            if [ -f "truststore.jks" ]; then
+                echo -e "${GREEN}Copying: truststore.jks to $RESOURCES_DIR/${NC}"
+                cp "truststore.jks" "$RESOURCES_DIR/"
+                if [ $? -eq 0 ]; then
+                    FILES_COPIED=$((FILES_COPIED + 1))
+                else
+                    echo -e "${RED}Error: Failed to copy truststore.jks${NC}"
+                fi
+            fi
+            ;;
+        "client")
+            if [ -f "client.jks" ]; then
+                echo -e "${GREEN}Copying: client.jks to $RESOURCES_DIR/${NC}"
+                cp "client.jks" "$RESOURCES_DIR/"
+                if [ $? -eq 0 ]; then
+                    FILES_COPIED=$((FILES_COPIED + 1))
+                else
+                    echo -e "${RED}Error: Failed to copy client.jks${NC}"
+                fi
+            fi
+            # Also copy truststore for client operation
+            if [ -f "truststore.jks" ]; then
+                echo -e "${GREEN}Copying: truststore.jks to $RESOURCES_DIR/${NC}"
+                cp "truststore.jks" "$RESOURCES_DIR/"
+                if [ $? -eq 0 ]; then
+                    FILES_COPIED=$((FILES_COPIED + 1))
+                else
+                    echo -e "${RED}Error: Failed to copy truststore.jks${NC}"
+                fi
+            fi
+            ;;
+    esac
+    
+    if [ $FILES_COPIED -eq 0 ]; then
+        echo -e "${YELLOW}No JKS files found to copy.${NC}"
+    else
+        echo -e "${GREEN}✓ Successfully copied $FILES_COPIED JKS file(s) to resources directory.${NC}"
+    fi
+    
+    echo ""
+    return 0
+}
+
 # Main execution
 echo -e "${GREEN}mTLS Keystore Creation Script${NC}"
 echo "=============================="
+
+# Handle clean operation first (doesn't require tools or CA files)
+if [ "$KEYSTORE_TYPE" = "clean" ]; then
+    clean_jks_files
+    exit 0
+fi
 
 # Check if keytool is available
 if ! command -v keytool &> /dev/null; then
@@ -344,19 +532,42 @@ if [ "$KEYSTORE_TYPE" = "all" ]; then
     echo -e "${YELLOW}Note: All certificates are signed by the CA certificate: $CA_CERT${NC}"
     echo -e "${YELLOW}For production, ensure your CA certificate is trusted.${NC}"
     
+    # Copy files to resources directory
+    copy_jks_to_resources
+    
 elif [ "$KEYSTORE_TYPE" = "server" ]; then
     if ! create_keystore "server"; then
         echo -e "${RED}Failed to create server keystore.${NC}"
         exit 1
     fi
+    
+    # Create truststore for server operation
+    if ! create_truststore; then
+        echo -e "${RED}Failed to create truststore.${NC}"
+        exit 1
+    fi
+    
     echo -e "${YELLOW}Note: This certificate is signed by the CA certificate: $CA_CERT${NC}"
     echo -e "${YELLOW}For production, ensure your CA certificate is trusted.${NC}"
+    
+    # Copy files to resources directory
+    copy_jks_to_resources
     
 elif [ "$KEYSTORE_TYPE" = "client" ]; then
     if ! create_keystore "client"; then
         echo -e "${RED}Failed to create client keystore.${NC}"
         exit 1
     fi
+    
+    # Create truststore for client operation
+    if ! create_truststore; then
+        echo -e "${RED}Failed to create truststore.${NC}"
+        exit 1
+    fi
+    
     echo -e "${YELLOW}Note: This certificate is signed by the CA certificate: $CA_CERT${NC}"
     echo -e "${YELLOW}For production, ensure your CA certificate is trusted.${NC}"
+    
+    # Copy files to resources directory
+    copy_jks_to_resources
 fi
