@@ -1,5 +1,7 @@
 package com.github.tls;
 
+import com.github.tls.utils.CertificateUtils;
+import com.github.tls.utils.KeyUsageConstants;
 import java.io.FileInputStream;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
@@ -7,22 +9,23 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * CertificateManager provides utilities for inspecting X.509 certificates
  * and extracting their v3 extension properties.
  */
-public class CertificateManager {
+public class CertificateAnalyzer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CertificateAnalyzer.class);
 
     /** Minimum version for X.509 v3 certificates. */
-    private static final int X509_V3_MINIMUM_VERSION = 3;
+    private static final int CERTIFICATE_V3 = 3;
     /** Maximum path length constraint value. */
     private static final int MAX_PATH_LENGTH = Integer.MAX_VALUE;
-    /** Number of key usage types. */
-    private static final int KEY_USAGE_COUNT = 9;
     /** Number of characters per hex line for formatting. */
     private static final int HEX_CHARS_PER_LINE = 32;
     /** Number of characters between hex bytes. */
@@ -69,24 +72,18 @@ public class CertificateManager {
         if (alias != null) {
             Certificate cert = keyStore.getCertificate(alias);
             if (cert instanceof X509Certificate) {
-                System.out.println("=== Certificate: " + alias + " ===");
+                LOGGER.info("=== Certificate: {} ===", alias);
                 inspectX509Certificate((X509Certificate) cert);
             } else {
-                System.out.println("Certificate with alias '" + alias
-                        + "' is not an X.509 certificate or does not exist.");
+                LOGGER.warn("Certificate with alias '{}' is not an X.509 certificate or does not exist", alias);
             }
         } else {
             // Inspect all certificates in the keystore
-            Enumeration<String> aliases = keyStore.aliases();
-            while (aliases.hasMoreElements()) {
-                String currentAlias = aliases.nextElement();
-                Certificate cert = keyStore.getCertificate(currentAlias);
-                if (cert instanceof X509Certificate) {
-                    System.out.println("=== Certificate: " + currentAlias + " ===");
-                    inspectX509Certificate((X509Certificate) cert);
-                    System.out.println();
-                }
-            }
+            CertificateUtils.enumerateCertificates(keyStore, (currentAlias, x509Cert) -> {
+                LOGGER.info("=== Certificate: {} ===", currentAlias);
+                inspectX509Certificate(x509Cert);
+                LOGGER.info("");
+            });
         }
     }
 
@@ -106,9 +103,9 @@ public class CertificateManager {
             int count = 0;
             for (Certificate cert : certificates) {
                 if (cert instanceof X509Certificate) {
-                    System.out.println("=== Certificate " + (++count) + " ===");
+                    LOGGER.info("=== Certificate " + (++count) + " ===");
                     inspectX509Certificate((X509Certificate) cert);
-                    System.out.println();
+                    LOGGER.info("");
                 }
             }
         }
@@ -120,30 +117,30 @@ public class CertificateManager {
      * @param cert The X.509 certificate to inspect
      */
     public void inspectX509Certificate(X509Certificate cert) {
-        System.out.println("Subject: " + cert.getSubjectX500Principal());
-        System.out.println("Issuer: " + cert.getIssuerX500Principal());
-        System.out.println("Serial Number: " + cert.getSerialNumber());
-        System.out.println("Valid From: " + cert.getNotBefore());
-        System.out.println("Valid Until: " + cert.getNotAfter());
-        System.out.println("Version: " + cert.getVersion());
-        System.out.println("Signature Algorithm: " + cert.getSigAlgName());
+        LOGGER.info("Subject: {}", cert.getSubjectX500Principal());
+        LOGGER.info("Issuer: {}", cert.getIssuerX500Principal());
+        LOGGER.info("Serial Number: {}", cert.getSerialNumber());
+        LOGGER.debug("Valid From: {}", cert.getNotBefore());
+        LOGGER.debug("Valid Until: {}", cert.getNotAfter());
+        LOGGER.debug("Version: {}", cert.getVersion());
+        LOGGER.debug("Signature Algorithm: {}", cert.getSigAlgName());
 
         // Check if this is a v3 certificate (version 3)
-        if (cert.getVersion() >= X509_V3_MINIMUM_VERSION) {
-            System.out.println("\n--- X.509 v3 Extensions ---");
+        if (cert.getVersion() >= CERTIFICATE_V3) {
+            LOGGER.info("\n--- X.509 v3 Extensions ---");
 
             Set<String> criticalExtensions = cert.getCriticalExtensionOIDs();
             Set<String> nonCriticalExtensions = cert.getNonCriticalExtensionOIDs();
 
             if (criticalExtensions != null && !criticalExtensions.isEmpty()) {
-                System.out.println("\nCritical Extensions:");
+                LOGGER.info("\nCritical Extensions:");
                 for (String oid : criticalExtensions) {
                     inspectExtension(cert, oid, true);
                 }
             }
 
             if (nonCriticalExtensions != null && !nonCriticalExtensions.isEmpty()) {
-                System.out.println("\nNon-Critical Extensions:");
+                LOGGER.info("\nNon-Critical Extensions:");
                 for (String oid : nonCriticalExtensions) {
                     inspectExtension(cert, oid, false);
                 }
@@ -152,7 +149,7 @@ public class CertificateManager {
             // Inspect common extensions with specific methods
             inspectCommonExtensions(cert);
         } else {
-            System.out.println("\nThis is not a v3 certificate. No extensions available.");
+            LOGGER.info("\nThis is not a v3 certificate. No extensions available.");
         }
     }
 
@@ -168,12 +165,12 @@ public class CertificateManager {
         String extensionName = getExtensionName(oid);
         byte[] extensionValue = cert.getExtensionValue(oid);
 
-        System.out.println("  " + extensionName + " (" + oid + ")");
-        System.out.println("    Critical: " + isCritical);
-        System.out.println("    Length: " + (extensionValue != null ? extensionValue.length : 0) + " bytes");
+        LOGGER.info("  " + extensionName + " (" + oid + ")");
+        LOGGER.info("    Critical: " + isCritical);
+        LOGGER.info("    Length: " + (extensionValue != null ? extensionValue.length : 0) + " bytes");
 
         if (extensionValue != null && extensionValue.length > 0) {
-            System.out.println("    Raw Value: " + bytesToHex(extensionValue));
+            LOGGER.info("    Raw Value: " + bytesToHex(extensionValue));
         }
     }
 
@@ -184,36 +181,31 @@ public class CertificateManager {
      */
     public void inspectCommonExtensions(X509Certificate cert) {
         if (cert == null) {
-            System.out.println("\n--- Common Extensions (Parsed) ---");
-            System.out.println("Error: Certificate is null");
+            LOGGER.info("\n--- Common Extensions (Parsed) ---");
+            LOGGER.info("Error: Certificate is null");
             return;
         }
 
-        System.out.println("\n--- Common Extensions (Parsed) ---");
+        LOGGER.info("\n--- Common Extensions (Parsed) ---");
 
         // Basic Constraints
         int basicConstraints = cert.getBasicConstraints();
         if (basicConstraints != -1) {
-            System.out.println("Basic Constraints:");
-            System.out.println("  CA: true");
-            System.out.println("  Path Length: " + (basicConstraints == MAX_PATH_LENGTH
+            LOGGER.info("Basic Constraints:");
+            LOGGER.info("  CA: true");
+            LOGGER.info("  Path Length: " + (basicConstraints == MAX_PATH_LENGTH
                     ? "unlimited" : basicConstraints));
         } else {
-            System.out.println("Basic Constraints: CA: false");
+            LOGGER.info("Basic Constraints: CA: false");
         }
 
         // Key Usage
         boolean[] keyUsage = cert.getKeyUsage();
         if (keyUsage != null) {
-            System.out.println("Key Usage:");
-            String[] keyUsageNames = {
-                "Digital Signature", "Non Repudiation", "Key Encipherment", "Data Encipherment",
-                "Key Agreement", "Key Cert Sign", "CRL Sign", "Encipher Only", "Decipher Only"
-            };
-
-            for (int i = 0; i < Math.min(keyUsage.length, keyUsageNames.length); i++) {
+            LOGGER.info("Key Usage:");
+            for (int i = 0; i < Math.min(keyUsage.length, KeyUsageConstants.KEY_USAGE_NAMES.length); i++) {
                 if (keyUsage[i]) {
-                    System.out.println("  " + keyUsageNames[i]);
+                    LOGGER.info("  " + KeyUsageConstants.getKeyUsageName(i));
                 }
             }
         }
@@ -222,47 +214,47 @@ public class CertificateManager {
         try {
             List<String> extendedKeyUsage = cert.getExtendedKeyUsage();
             if (extendedKeyUsage != null && !extendedKeyUsage.isEmpty()) {
-                System.out.println("Extended Key Usage:");
+                LOGGER.info("Extended Key Usage:");
                 for (String eku : extendedKeyUsage) {
-                    System.out.println("  " + getExtendedKeyUsageName(eku) + " (" + eku + ")");
+                    LOGGER.info("  " + getExtendedKeyUsageName(eku) + " (" + eku + ")");
                 }
             }
         } catch (CertificateException e) {
-            System.out.println("Extended Key Usage: Error parsing - " + e.getMessage());
+            LOGGER.info("Extended Key Usage: Error parsing - " + e.getMessage());
         }
 
         // Subject Alternative Names
         try {
             Collection<List<?>> subjectAltNames = cert.getSubjectAlternativeNames();
             if (subjectAltNames != null && !subjectAltNames.isEmpty()) {
-                System.out.println("Subject Alternative Names:");
+                LOGGER.info("Subject Alternative Names:");
                 for (List<?> san : subjectAltNames) {
                     if (san.size() >= 2) {
                         Integer type = (Integer) san.get(0);
                         Object value = san.get(1);
-                        System.out.println("  " + getSubjectAltNameType(type) + ": " + value);
+                        LOGGER.info("  " + getSubjectAltNameType(type) + ": " + value);
                     }
                 }
             }
         } catch (CertificateException e) {
-            System.out.println("Subject Alternative Names: Error parsing - " + e.getMessage());
+            LOGGER.info("Subject Alternative Names: Error parsing - " + e.getMessage());
         }
 
         // Issuer Alternative Names
         try {
             Collection<List<?>> issuerAltNames = cert.getIssuerAlternativeNames();
             if (issuerAltNames != null && !issuerAltNames.isEmpty()) {
-                System.out.println("Issuer Alternative Names:");
+                LOGGER.info("Issuer Alternative Names:");
                 for (List<?> ian : issuerAltNames) {
                     if (ian.size() >= 2) {
                         Integer type = (Integer) ian.get(0);
                         Object value = ian.get(1);
-                        System.out.println("  " + getSubjectAltNameType(type) + ": " + value);
+                        LOGGER.info("  " + getSubjectAltNameType(type) + ": " + value);
                     }
                 }
             }
         } catch (CertificateException e) {
-            System.out.println("Issuer Alternative Names: Error parsing - " + e.getMessage());
+            LOGGER.info("Issuer Alternative Names: Error parsing - " + e.getMessage());
         }
     }
 
@@ -357,17 +349,17 @@ public class CertificateManager {
      * @param args Command line arguments
      */
     public static void main(String[] args) {
-        CertificateManager manager = new CertificateManager();
+        CertificateAnalyzer manager = new CertificateAnalyzer();
 
         try {
             if (args.length == 0) {
                 // Default behavior - inspect certificates in the project's keystore
-                System.out.println("Inspecting server certificate from default keystore...");
+                LOGGER.info("Inspecting server certificate from default keystore...");
                 manager.inspectCertificateFromKeystore("target/classes/server.jks", "changeit", "server");
 
-                System.out.println("\n" + "=".repeat(SEPARATOR_LENGTH) + "\n");
+                LOGGER.info("\n" + "=".repeat(SEPARATOR_LENGTH) + "\n");
 
-                System.out.println("Inspecting client certificate from default keystore...");
+                LOGGER.info("Inspecting client certificate from default keystore...");
                 manager.inspectCertificateFromKeystore("target/classes/client.jks", "changeit", "client");
 
             } else if (args.length >= 2) {
@@ -375,16 +367,16 @@ public class CertificateManager {
                 String password = args[1];
                 String alias = args.length > 2 ? args[2] : null;
 
-                System.out.println("Inspecting certificate(s) from: " + keystorePath);
+                LOGGER.info("Inspecting certificate(s) from: " + keystorePath);
                 manager.inspectCertificateFromKeystore(keystorePath, password, alias);
 
             } else {
-                System.out.println("Usage:");
-                System.out.println("  java CertificateManager                              "
+                LOGGER.info("Usage:");
+                LOGGER.info("  java CertificateManager                              "
                         + "- Inspect default keystores");
-                System.out.println("  java CertificateManager <keystore> <password>       "
+                LOGGER.info("  java CertificateManager <keystore> <password>       "
                         + "- Inspect all certs in keystore");
-                System.out.println("  java CertificateManager <keystore> <password> <alias> "
+                LOGGER.info("  java CertificateManager <keystore> <password> <alias> "
                         + "- Inspect specific cert");
             }
 
