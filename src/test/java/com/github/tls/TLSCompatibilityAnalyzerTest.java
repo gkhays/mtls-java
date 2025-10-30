@@ -1,6 +1,8 @@
 package com.github.tls;
 
 import java.security.KeyStore;
+import java.security.Provider;
+import java.util.Enumeration;
 import javax.net.ssl.SSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,19 +88,27 @@ class TLSCompatibilityAnalyzerTest {
     @Test
     void testDisplayTLSInfo() {
         when(mockSSLContext.getProtocol()).thenReturn("TLSv1.2");
+        Provider mockProvider = mock(Provider.class);
+        when(mockProvider.getName()).thenReturn("SunJSSE");
+        when(mockSSLContext.getProvider()).thenReturn(mockProvider);
 
         assertDoesNotThrow(() -> {
             analyzer.displayTLSInfo();
         });
 
         verify(mockSSLContext, atLeastOnce()).getProtocol();
+        verify(mockSSLContext, atLeastOnce()).getProvider();
     }
 
     /**
      * Test displayCertificates method.
      */
     @Test
-    void testDisplayCertificates() {
+    void testDisplayCertificates() throws Exception {
+        // Mock an empty enumeration for aliases
+        Enumeration<String> emptyAliases = java.util.Collections.emptyEnumeration();
+        when(mockKeyStore.aliases()).thenReturn(emptyAliases);
+
         assertDoesNotThrow(() -> {
             analyzer.displayCertificates();
         });

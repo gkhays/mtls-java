@@ -20,8 +20,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CertificateAnalyzerTest {
 
-    private static final int X509_VERSION_3 = 3;
-
     private CertificateAnalyzer certificateAnalyzer;
 
     @BeforeEach
@@ -54,7 +52,14 @@ class CertificateAnalyzerTest {
     @Test
     void testInspectCommonExtensionsWithMockCertificate() {
         X509Certificate mockCert = mock(X509Certificate.class);
-        when(mockCert.getVersion()).thenReturn(X509_VERSION_3);
+        // Only mock the methods that are actually used by inspectCommonExtensions
+        when(mockCert.getBasicConstraints()).thenReturn(-1);
+        when(mockCert.getKeyUsage()).thenReturn(null);
+        try {
+            when(mockCert.getExtendedKeyUsage()).thenReturn(null);
+        } catch (java.security.cert.CertificateParsingException e) {
+            // Handle exception
+        }
 
         assertDoesNotThrow(() -> {
             certificateAnalyzer.inspectCommonExtensions(mockCert);
@@ -111,7 +116,13 @@ class CertificateAnalyzerTest {
     void testCertificateAnalyzerWithDifferentCertificateVersions() {
         // Test with version 1 certificate
         X509Certificate mockCertV1 = mock(X509Certificate.class);
-        when(mockCertV1.getVersion()).thenReturn(1);
+        when(mockCertV1.getBasicConstraints()).thenReturn(-1);
+        when(mockCertV1.getKeyUsage()).thenReturn(null);
+        try {
+            when(mockCertV1.getExtendedKeyUsage()).thenReturn(null);
+        } catch (java.security.cert.CertificateParsingException e) {
+            // Handle exception
+        }
 
         assertDoesNotThrow(() -> {
             certificateAnalyzer.inspectCommonExtensions(mockCertV1);
@@ -119,7 +130,15 @@ class CertificateAnalyzerTest {
 
         // Test with version 3 certificate
         X509Certificate mockCertV3 = mock(X509Certificate.class);
-        when(mockCertV3.getVersion()).thenReturn(X509_VERSION_3);
+        when(mockCertV3.getBasicConstraints()).thenReturn(0);
+        when(mockCertV3.getKeyUsage()).thenReturn(new boolean[]{
+            true, false, false, false, false, false, false, false, false
+        });
+        try {
+            when(mockCertV3.getExtendedKeyUsage()).thenReturn(null);
+        } catch (java.security.cert.CertificateParsingException e) {
+            // Handle exception
+        }
 
         assertDoesNotThrow(() -> {
             certificateAnalyzer.inspectCommonExtensions(mockCertV3);

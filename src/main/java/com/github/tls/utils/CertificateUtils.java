@@ -38,6 +38,11 @@ public final class CertificateUtils {
      * @return true if the certificate is valid, false otherwise
      */
     public static boolean checkCertificateValidity(KeyStore keyStore, String alias) {
+        if (keyStore == null) {
+            LOGGER.error("KeyStore is null");
+            return false;
+        }
+
         try {
             java.security.cert.Certificate cert = keyStore.getCertificate(alias);
             if (cert instanceof X509Certificate) {
