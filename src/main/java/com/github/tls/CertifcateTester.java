@@ -52,7 +52,7 @@ public final class CertifcateTester {
      * Runs the original keystore demo functionality.
      */
     private static void runKeystoreTest() {
-        LOGGER.info("🔍 PART 1: KEYSTORE DEMO INSPECTION");
+        LOGGER.info("🔍 PART 1: KEYSTORE TEST INSPECTION");
         LOGGER.info("=".repeat(SEPARATOR_LENGTH));
 
         CertificateAnalyzer manager = new CertificateAnalyzer();
@@ -90,7 +90,7 @@ public final class CertifcateTester {
             LOGGER.info("Testing CLIENT keystore from embedded resources:");
             KeyStore clientKeyStore = KeyStore.getInstance("JKS");
             clientKeyStore.load(
-                CertifcateTester.class.getResourceAsStream("/com/github/tls/resources/client.jks"),
+                CertifcateTester.class.getResourceAsStream("/client.jks"),
                 "changeit".toCharArray()
             );
 
@@ -114,7 +114,7 @@ public final class CertifcateTester {
             LOGGER.info("Testing SERVER keystore from embedded resources:");
             KeyStore serverKeyStore = KeyStore.getInstance("JKS");
             serverKeyStore.load(
-                CertifcateTester.class.getResourceAsStream("/com/github/tls/resources/server.jks"),
+                CertifcateTester.class.getResourceAsStream("/server.jks"),
                 "changeit".toCharArray()
             );
 
