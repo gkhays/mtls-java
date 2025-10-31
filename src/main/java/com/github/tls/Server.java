@@ -12,11 +12,15 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * SSL Server for mTLS communication.
  */
 public class Server implements Runnable {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(Server.class);
 
     /** Default SSL port for secure connections. */
     private static final int SSL_PORT = 8443;
@@ -39,31 +43,31 @@ public class Server implements Runnable {
             // Load server keystore with CA-signed server certificate
             keyStore = KeyStore.getInstance("JKS");
             keyStore.load(getClass().getResourceAsStream("/server.jks"), password.toCharArray());
-            System.out.println("Server keystore loaded successfully (CA-signed certificate)");
+            LOGGER.info("Server keystore loaded successfully (CA-signed certificate)");
             kmf.init(keyStore, password.toCharArray());
 
             // Load truststore containing CA certificate to trust CA-signed certificates
             KeyStore trustStore = KeyStore.getInstance("JKS");
             trustStore.load(getClass().getResourceAsStream("/truststore.jks"), "changeit".toCharArray());
-            System.out.println("Server truststore loaded successfully (contains CA certificate)");
+            LOGGER.info("Server truststore loaded successfully (contains CA certificate)");
             tmf.init(trustStore);
 
             context = SSLContext.getInstance("TLSv1.2");
             context.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
 
             // Debug: List all aliases in the keystore
-            System.out.println("Available aliases in keystore:");
+            LOGGER.debug("Available aliases in keystore:");
             java.util.Enumeration<String> aliases = keyStore.aliases();
             while (aliases.hasMoreElements()) {
                 String alias = aliases.nextElement();
-                System.out.println("  - " + alias);
+                LOGGER.debug("  - {}", alias);
             }
 
             X509Certificate cert = (X509Certificate) keyStore.getCertificate("server");
             if (cert != null) {
-                (new CertificateManager()).inspectCommonExtensions(cert);
+                (new CertificateAnalyzer()).inspectCommonExtensions(cert);
             } else {
-                System.out.println("Warning: Certificate with alias 'server' not found in keystore");
+                LOGGER.warn("Warning: Certificate with alias 'server' not found in keystore");
             }
 
             SSLServerSocketFactory factory = context.getServerSocketFactory();
@@ -72,8 +76,13 @@ public class Server implements Runnable {
             // Enable client authentication for mTLS
             serverSocket.setWantClientAuth(true);
             serverSocket.setNeedClientAuth(true);
+
+            TLSCompatibilityAnalyzer viewer = new TLSCompatibilityAnalyzer(keyStore, context);
+            LOGGER.info("=== TLS Compatibility Analyzer Information ===");
+            viewer.displayTLSInfo();
+            viewer.displayCertificates();
         } catch (java.security.GeneralSecurityException | java.io.IOException e) {
-            e.printStackTrace();
+            LOGGER.error("Error initializing server", e);
         }
     }
 
@@ -81,9 +90,9 @@ public class Server implements Runnable {
     public void run() {
         try {
             while (true) {
-                System.out.println("Server is waiting for connection...");
+                LOGGER.info("Server is waiting for connection...");
                 Socket socket = serverSocket.accept();
-                System.out.println("Client connected: " + socket.getInetAddress());
+                LOGGER.info("Client connected: {}", socket.getInetAddress());
 
                 handleClientConnection(socket);
             }
@@ -102,10 +111,10 @@ public class Server implements Runnable {
 
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println("Received: " + line);
+                LOGGER.info("Received: {}", line);
 
                 if ("quit".equalsIgnoreCase(line) || "exit".equalsIgnoreCase(line)) {
-                    System.out.println("Client requested to close connection");
+                    LOGGER.info("Client requested to close connection");
                     writer.println("Goodbye!");
                     break;
                 }
@@ -114,12 +123,12 @@ public class Server implements Runnable {
                 writer.println("Echo: " + line);
             }
         } catch (IOException e) {
-            System.err.println("Error handling client connection: " + e.getMessage());
+            LOGGER.error("Error handling client connection: {}", e.getMessage());
         } finally {
             try {
                 socket.close();
             } catch (IOException e) {
-                System.err.println("Error closing socket: " + e.getMessage());
+                LOGGER.error("Error closing socket: {}", e.getMessage());
             }
         }
     }

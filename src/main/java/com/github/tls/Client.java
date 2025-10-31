@@ -10,11 +10,15 @@ import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.TrustManagerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * SSL Client for mTLS communication.
  */
 public class Client {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
 
     /** Default SSL port for secure connections. */
     private static final int SSL_PORT = 8443;
@@ -49,13 +53,13 @@ public class Client {
             // Load client keystore with CA-signed client certificate for client authentication
             KeyStore keyStore = KeyStore.getInstance("JKS");
             keyStore.load(getClass().getResourceAsStream("/client.jks"), password.toCharArray());
-            System.out.println("Client keystore loaded successfully (CA-signed certificate)");
+            LOGGER.info("Client keystore loaded successfully (CA-signed certificate)");
             kmf.init(keyStore, password.toCharArray());
 
             // Load truststore containing CA certificate to trust CA-signed server certificate
             KeyStore trustStore = KeyStore.getInstance("JKS");
             trustStore.load(getClass().getResourceAsStream("/truststore.jks"), password.toCharArray());
-            System.out.println("Client truststore loaded successfully (contains CA certificate)");
+            LOGGER.info("Client truststore loaded successfully (contains CA certificate)");
             tmf.init(trustStore);
 
             context = SSLContext.getInstance("TLSv1.2");
@@ -64,11 +68,11 @@ public class Client {
             // Inspect the client certificate
             X509Certificate cert = (X509Certificate) keyStore.getCertificate("client");
             if (this.singleUseMode) {
-                System.out.println("Single-use mode: Client certificate should have serverAuth EKU");
+                LOGGER.info("Single-use mode: Client certificate should have serverAuth EKU");
             }
-            (new CertificateManager()).inspectCommonExtensions(cert);
+            (new CertificateAnalyzer()).inspectCommonExtensions(cert);
         } catch (java.security.GeneralSecurityException | java.io.IOException e) {
-            e.printStackTrace();
+            LOGGER.error("Error initializing client", e);
         }
     }
 
@@ -97,19 +101,19 @@ public class Client {
      */
     public void sendMessage(String message) {
         if (socket == null || socket.isClosed() || writer == null) {
-            System.err.println("Socket is not connected. Call connect() first.");
+            LOGGER.error("Socket is not connected. Call connect() first.");
             return;
         }
 
         try {
             // Send the message
-            System.out.println("Sending message: " + message);
+            LOGGER.info("Sending message: {}", message);
             writer.println(message);
 
             // Read the response from server
             String response = reader.readLine();
             if (response != null) {
-                System.out.println("Server response: " + response);
+                LOGGER.info("Server response: {}", response);
             }
 
         } catch (IOException e) {
@@ -138,10 +142,10 @@ public class Client {
             }
             if (socket != null && !socket.isClosed()) {
                 socket.close();
-                System.out.println("Connection closed.");
+                LOGGER.info("Connection closed.");
             }
         } catch (IOException e) {
-            System.err.println("Error closing connection: " + e.getMessage());
+            LOGGER.error("Error closing connection: {}", e.getMessage());
         }
     }
 }
