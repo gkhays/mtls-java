@@ -88,6 +88,45 @@ public class CertificateAnalyzer {
     }
 
     /**
+     * Inspects a certificate from a keystore resource and outputs its v3 extension properties.
+     * This method loads the keystore from the classpath resources.
+     *
+     * @param keystoreResourceName Name of the keystore resource (e.g., "server.jks")
+     * @param keystorePassword Password for the keystore
+     * @param alias Alias of the certificate to inspect (null to inspect all certificates)
+     * @throws Exception if an error occurs during certificate inspection
+     */
+    public void inspectCertificateFromKeystoreResource(String keystoreResourceName, String keystorePassword,
+            String alias) throws java.security.GeneralSecurityException, java.io.IOException {
+        KeyStore keyStore = KeyStore.getInstance("JKS");
+
+        try (java.io.InputStream inputStream = this.getClass().getClassLoader()
+                .getResourceAsStream(keystoreResourceName)) {
+            if (inputStream == null) {
+                throw new java.io.IOException("Keystore resource not found: " + keystoreResourceName);
+            }
+            keyStore.load(inputStream, keystorePassword.toCharArray());
+        }
+
+        if (alias != null) {
+            Certificate cert = keyStore.getCertificate(alias);
+            if (cert instanceof X509Certificate) {
+                LOGGER.info("=== Certificate: {} ===", alias);
+                inspectX509Certificate((X509Certificate) cert);
+            } else {
+                LOGGER.warn("Certificate with alias '{}' is not an X.509 certificate or does not exist", alias);
+            }
+        } else {
+            // Inspect all certificates in the keystore
+            CertificateUtils.enumerateCertificates(keyStore, (currentAlias, x509Cert) -> {
+                LOGGER.info("=== Certificate: {} ===", currentAlias);
+                inspectX509Certificate(x509Cert);
+                LOGGER.info("");
+            });
+        }
+    }
+
+    /**
      * Inspects a certificate from a PEM file and outputs its v3 extension properties.
      *
      * @param certPath Path to the certificate file (PEM format)
@@ -353,14 +392,14 @@ public class CertificateAnalyzer {
 
         try {
             if (args.length == 0) {
-                // Default behavior - inspect certificates in the project's keystore
-                LOGGER.info("Inspecting server certificate from default keystore...");
-                manager.inspectCertificateFromKeystore("target/classes/server.jks", "changeit", "server");
+                // Default behavior - inspect certificates from classpath resources
+                LOGGER.info("Inspecting server certificate from classpath resource...");
+                manager.inspectCertificateFromKeystoreResource("server.jks", "changeit", "server");
 
                 LOGGER.info("\n" + "=".repeat(SEPARATOR_LENGTH) + "\n");
 
-                LOGGER.info("Inspecting client certificate from default keystore...");
-                manager.inspectCertificateFromKeystore("target/classes/client.jks", "changeit", "client");
+                LOGGER.info("Inspecting client certificate from classpath resource...");
+                manager.inspectCertificateFromKeystoreResource("client.jks", "changeit", "client");
 
             } else if (args.length >= 2) {
                 String keystorePath = args[0];
@@ -372,12 +411,12 @@ public class CertificateAnalyzer {
 
             } else {
                 LOGGER.info("Usage:");
-                LOGGER.info("  java CertificateManager                              "
-                        + "- Inspect default keystores");
-                LOGGER.info("  java CertificateManager <keystore> <password>       "
-                        + "- Inspect all certs in keystore");
-                LOGGER.info("  java CertificateManager <keystore> <password> <alias> "
-                        + "- Inspect specific cert");
+                LOGGER.info("  java CertificateAnalyzer                              "
+                        + "- Inspect default keystores from classpath");
+                LOGGER.info("  java CertificateAnalyzer <keystore> <password>       "
+                        + "- Inspect all certs in keystore file");
+                LOGGER.info("  java CertificateAnalyzer <keystore> <password> <alias> "
+                        + "- Inspect specific cert from keystore file");
             }
 
         } catch (java.security.GeneralSecurityException | java.io.IOException e) {
